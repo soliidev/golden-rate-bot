@@ -15,10 +15,19 @@ class ChooseItemPriceHandler
             reply_markup: ReplyKeyboardMarkup::make(true)
                 ->addRow(
                     KeyboardButton::make('دلار'),
+                    KeyboardButton::make('یورو')
+                )
+                ->addRow(
                     KeyboardButton::make('سکه بهار آزادی'),
                     KeyboardButton::make('ربع سکه'),
                     KeyboardButton::make('نیم سکه'),
+                    KeyboardButton::make('طلای دست دوم')
+
+                )
+                ->addRow(
                     KeyboardButton::make('بیت کوین'),
+                    KeyboardButton::make('تتر'),
+                    KeyboardButton::make('ریپل')
                 )
         );
     }

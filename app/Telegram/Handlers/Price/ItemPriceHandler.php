@@ -50,10 +50,14 @@ class ItemPriceHandler
     {
         return match ($item) {
             'دلار' => 'price_dollar_rl',
+            'یورو' => 'price_eur',
             'سکه بهار آزادی' => 'sekee',
             'ربع سکه' => 'rob',
             'نیم سکه' => 'nim',
-            'بیت کوین' => 'aa',
+            'طلای دست دوم' => 'gold_mini_size',
+            'بیت کوین' => 'crypto-bitcoin-irr',
+            'تتر' => 'crypto-tether-irr',
+            'ریپل' => 'crypto-ripple-irr',
             default => '',
         };
     }
