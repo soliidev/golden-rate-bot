@@ -17,10 +17,21 @@ class ItemPriceHandler
 
         $bot->sendMessage("در حال گرفتن قیمت $message ...");
 
-        $price = $this->getItemPrice($message);
-        $price = $this->convertToToman($price);
+        $priceInfo = $this->getItemPrice($message);
 
-        $bot->sendMessage("قیمت فعلی $message: $price تومان");
+        $price = $priceInfo['p'];
+        $minPrice = $priceInfo['l'];
+        $maxPrice = $priceInfo['h'];
+
+        $price = $this->convertToToman($price);
+        $minPrice = $this->convertToToman($minPrice);
+        $maxPrice = $this->convertToToman($maxPrice);
+
+        $bot->sendMessage(
+            "قیمت فعلی $message: $price تومان \n" .
+            "کمترین قیمت: $minPrice تومان \n" .
+            " بیشترین قیمت: $maxPrice تومان \n"
+        );
     }
 
     /**
@@ -32,7 +43,7 @@ class ItemPriceHandler
 
         $itemPriceKey = $this->getItemPriceKey($item);
 
-        return $itemPrice[$itemPriceKey]['p'];
+        return $itemPrice[$itemPriceKey];
     }
 
     public function getItemPriceKey($item): string
