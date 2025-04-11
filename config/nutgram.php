@@ -9,6 +9,7 @@ return [
 
     // Extra or specific configurations
     'config' => [
+        'timeout' => 60,
         'polling' => [
             'timeout' => 60
         ]
