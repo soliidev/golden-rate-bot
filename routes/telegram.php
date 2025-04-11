@@ -1,7 +1,9 @@
 <?php
 /** @var SergiX44\Nutgram\Nutgram $bot */
 
-use SergiX44\Nutgram\Nutgram;
+use App\Telegram\Commands\Welcome\WelcomeCommand;
+use App\Telegram\Handlers\Price\ChooseItemPriceHandler;
+use App\Telegram\Handlers\Price\ItemPriceHandler;
 
 /*
 |--------------------------------------------------------------------------
@@ -13,6 +15,11 @@ use SergiX44\Nutgram\Nutgram;
 |
 */
 
-$bot->onCommand('start', function (Nutgram $bot) {
-    $bot->sendMessage('Hello, world!');
-})->description('The start command!');
+$bot->onCommand('start', WelcomeCommand::class)->description('The welcome command!');
+
+$bot->onText('بررسی قیمت ها', ChooseItemPriceHandler::class);
+$bot->onText('دلار', ItemPriceHandler::class);
+$bot->onText('سکه بهار آزادی', ItemPriceHandler::class);
+$bot->onText('ربع سکه', ItemPriceHandler::class);
+$bot->onText('نیم سکه', ItemPriceHandler::class);
+$bot->onText('بیت کوین', ItemPriceHandler::class);
