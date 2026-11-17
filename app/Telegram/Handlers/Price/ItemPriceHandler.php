@@ -14,23 +14,29 @@ class ItemPriceHandler
      */
     public function __invoke(Nutgram $bot): void
     {
-        $message = $bot->message()->text;
+        $message = $bot->message()?->text;
+
+        if ($this->getItemPriceKey($message) === '') {
+            return;
+        }
 
         $bot->sendMessage("در حال گرفتن قیمت $message ...");
 
         $priceInfo = $this->getItemPrice($message);
 
-        $price = $priceInfo['p'];
-        $minPrice = $priceInfo['l'];
-        $maxPrice = $priceInfo['h'];
+        if ($priceInfo === null) {
+            $bot->sendMessage("قیمت $message در حال حاضر در دسترس نیست.");
 
-        $price = $this->convertToToman($price);
-        $minPrice = $this->convertToToman($minPrice);
-        $maxPrice = $this->convertToToman($maxPrice);
+            return;
+        }
+
+        $price = $this->convertToToman($priceInfo['p'] ?? 0);
+        $minPrice = $this->convertToToman($priceInfo['l'] ?? 0);
+        $maxPrice = $this->convertToToman($priceInfo['h'] ?? 0);
 
         $bot->sendMessage(
-            "قیمت فعلی $message: $price تومان \n" .
-                "کمترین قیمت: $minPrice تومان \n" .
+            "قیمت فعلی $message: $price تومان \n".
+                "کمترین قیمت: $minPrice تومان \n".
                 " بیشترین قیمت: $maxPrice تومان \n"
         );
     }
@@ -38,13 +44,13 @@ class ItemPriceHandler
     /**
      * @throws RequestException
      */
-    public function getItemPrice($item)
+    public function getItemPrice($item): ?array
     {
-        $itemPrice = (new CurrentItemPriceService())->getCurrentItemPrice();
+        $itemPrice = (new CurrentItemPriceService)->getCurrentItemPrice();
 
         $itemPriceKey = $this->getItemPriceKey($item);
 
-        return $itemPrice[$itemPriceKey];
+        return $itemPrice[$itemPriceKey] ?? null;
     }
 
     public function getItemPriceKey($item): string

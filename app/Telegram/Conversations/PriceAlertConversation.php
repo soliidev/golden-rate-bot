@@ -56,6 +56,14 @@ class PriceAlertConversation extends Conversation
 
     public function handleSummary(Nutgram $bot): void
     {
+        if (! $bot->isCallbackQuery()) {
+            $this->toggleItem(PriceItems::fromText($bot->message()?->text));
+            $this->showItems($bot);
+            $this->next('handleItems');
+
+            return;
+        }
+
         $data = (string) $bot->callbackQuery()?->data;
 
         switch ($data) {
@@ -92,8 +100,22 @@ class PriceAlertConversation extends Conversation
     public function handleItems(Nutgram $bot): void
     {
         if (! $bot->isCallbackQuery()) {
-            $this->showItems($bot);
-            $this->next('handleItems');
+            $text = $bot->message()?->text;
+
+            if ($this->toggleItem(PriceItems::fromText($text))) {
+                $this->showItems($bot);
+                $this->next('handleItems');
+
+                return;
+            }
+
+            if (in_array(trim((string) $text), ['ادامه', 'تایید', 'ثبت', '✅ ادامه'], true)) {
+                $this->continueToTime($bot);
+
+                return;
+            }
+
+            $bot->sendMessage('برای انتخاب، یکی از دکمه‌های روی پیام را بزنید یا نام همان قیمت را بنویسید.');
 
             return;
         }
@@ -101,16 +123,7 @@ class PriceAlertConversation extends Conversation
         $data = (string) $bot->callbackQuery()?->data;
 
         if (str_starts_with($data, 'item:')) {
-            $key = substr($data, 5);
-
-            if (PriceItems::exists($key)) {
-                if (in_array($key, $this->selected, true)) {
-                    $this->selected = array_values(array_diff($this->selected, [$key]));
-                } else {
-                    $this->selected[] = $key;
-                }
-            }
-
+            $this->toggleItem(substr($data, 5));
             $bot->answerCallbackQuery();
             $this->showItems($bot);
             $this->next('handleItems');
@@ -119,15 +132,7 @@ class PriceAlertConversation extends Conversation
         }
 
         if ($data === 'done') {
-            if ($this->selected === []) {
-                $bot->answerCallbackQuery(text: 'حداقل یک قیمت را انتخاب کنید.', show_alert: true);
-
-                return;
-            }
-
-            $bot->answerCallbackQuery();
-            $this->showTimes($bot);
-            $this->next('handleTime');
+            $this->continueToTime($bot);
 
             return;
         }
@@ -141,6 +146,41 @@ class PriceAlertConversation extends Conversation
         }
 
         $bot->answerCallbackQuery();
+    }
+
+    protected function toggleItem(?string $key): bool
+    {
+        if ($key === null || ! PriceItems::exists($key)) {
+            return false;
+        }
+
+        if (in_array($key, $this->selected, true)) {
+            $this->selected = array_values(array_diff($this->selected, [$key]));
+        } else {
+            $this->selected[] = $key;
+        }
+
+        return true;
+    }
+
+    protected function continueToTime(Nutgram $bot): void
+    {
+        if ($this->selected === []) {
+            if ($bot->isCallbackQuery()) {
+                $bot->answerCallbackQuery(text: 'حداقل یک قیمت را انتخاب کنید.', show_alert: true);
+            } else {
+                $bot->sendMessage('حداقل یک قیمت را انتخاب کنید.');
+            }
+
+            return;
+        }
+
+        if ($bot->isCallbackQuery()) {
+            $bot->answerCallbackQuery();
+        }
+
+        $this->showTimes($bot);
+        $this->next('handleTime');
     }
 
     public function handleTime(Nutgram $bot): void
