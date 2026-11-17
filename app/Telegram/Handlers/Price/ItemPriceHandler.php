@@ -3,6 +3,7 @@
 namespace App\Telegram\Handlers\Price;
 
 use App\Services\CurrentItemPrice\CurrentItemPriceService;
+use App\Support\PriceItems;
 use Illuminate\Http\Client\RequestException;
 use SergiX44\Nutgram\Nutgram;
 
@@ -29,8 +30,8 @@ class ItemPriceHandler
 
         $bot->sendMessage(
             "قیمت فعلی $message: $price تومان \n" .
-            "کمترین قیمت: $minPrice تومان \n" .
-            " بیشترین قیمت: $maxPrice تومان \n"
+                "کمترین قیمت: $minPrice تومان \n" .
+                " بیشترین قیمت: $maxPrice تومان \n"
         );
     }
 
@@ -48,25 +49,11 @@ class ItemPriceHandler
 
     public function getItemPriceKey($item): string
     {
-        return match ($item) {
-            'دلار' => 'price_dollar_rl',
-            'یورو' => 'price_eur',
-            'سکه بهار آزادی' => 'sekee',
-            'ربع سکه' => 'rob',
-            'نیم سکه' => 'nim',
-            'طلای دست دوم' => 'gold_mini_size',
-            'بیت کوین' => 'crypto-bitcoin-irr',
-            'تتر' => 'crypto-tether-irr',
-            'ریپل' => 'crypto-ripple-irr',
-            default => '',
-        };
+        return PriceItems::fromText($item) ?? '';
     }
 
     public function convertToToman($price): string
     {
-        $price = str_replace(',', '', $price);
-        $price = (int)$price / 10;
-
-        return number_format($price);
+        return PriceItems::toToman($price);
     }
 }

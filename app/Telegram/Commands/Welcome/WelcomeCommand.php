@@ -16,10 +16,12 @@ class WelcomeCommand extends Command
     public function handle(Nutgram $bot): void
     {
         $bot->sendMessage(
-            'به ربات نرخ طلایی خوش آمدید. لطفا یکی از فعالیت های زیر را انتخاب کنید!!',
+            'به ربات نرخ طلایی خوش آمدید! 🎉
+لطفا برای دریافت قیمت روی دکمه زیر بزنید.',
             reply_markup: ReplyKeyboardMarkup::make(true)
                 ->addRow(
-                    KeyboardButton::make('بررسی قیمت ها')
+                    KeyboardButton::make('💰 بررسی قیمت‌ها'),
+                    KeyboardButton::make('🔔 بهم اطلاع بده')
                 )
         );
     }
