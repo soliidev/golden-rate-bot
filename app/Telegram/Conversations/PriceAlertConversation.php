@@ -4,6 +4,7 @@ namespace App\Telegram\Conversations;
 
 use App\Models\PriceAlert;
 use App\Support\PriceItems;
+use App\Telegram\Commands\Welcome\WelcomeCommand;
 use SergiX44\Nutgram\Conversations\Conversation;
 use SergiX44\Nutgram\Nutgram;
 use SergiX44\Nutgram\Telegram\Exceptions\TelegramException;
@@ -32,6 +33,14 @@ class PriceAlertConversation extends Conversation
 
     protected ?int $menuMessageId = null;
 
+    public function __construct()
+    {
+        // Keep this conversation alive for every update. Without it any
+        // matching onText/onCommand handler (like the notify button) would
+        // terminate the conversation and silently restart it from scratch.
+        $this->setSkipHandlers(true);
+    }
+
     public function start(Nutgram $bot): void
     {
         $alert = $this->currentAlert($bot);
@@ -49,7 +58,6 @@ class PriceAlertConversation extends Conversation
             return;
         }
 
-        $this->selected = [];
         $this->showItems($bot);
         $this->next('handleItems');
     }
@@ -57,9 +65,15 @@ class PriceAlertConversation extends Conversation
     public function handleSummary(Nutgram $bot): void
     {
         if (! $bot->isCallbackQuery()) {
-            $this->toggleItem(PriceItems::fromText($bot->message()?->text));
-            $this->showItems($bot);
-            $this->next('handleItems');
+            if ($this->handleRestartRequest($bot)) {
+                return;
+            }
+
+            if ($this->switchToItemsFromText($bot)) {
+                return;
+            }
+
+            $bot->sendMessage('برای تغییر، روی «✏️ تغییر تنظیمات» بزنید و برای لغو، «🔕 لغو اعلان».');
 
             return;
         }
@@ -102,10 +116,11 @@ class PriceAlertConversation extends Conversation
         if (! $bot->isCallbackQuery()) {
             $text = $bot->message()?->text;
 
-            if ($this->toggleItem(PriceItems::fromText($text))) {
-                $this->showItems($bot);
-                $this->next('handleItems');
+            if ($this->handleRestartRequest($bot)) {
+                return;
+            }
 
+            if ($this->switchToItemsFromText($bot)) {
                 return;
             }
 
@@ -115,7 +130,10 @@ class PriceAlertConversation extends Conversation
                 return;
             }
 
-            $bot->sendMessage('برای انتخاب، یکی از دکمه‌های روی پیام را بزنید یا نام همان قیمت را بنویسید.');
+            $bot->sendMessage(
+                'برای انتخاب، روی دکمه‌های همین پیام بزنید یا نام قیمت را بنویسید.'."\n".
+                'برای شروع دوباره «🔔 بهم اطلاع بده» و برای خروج «/start» را بزنید.'
+            );
 
             return;
         }
@@ -163,6 +181,22 @@ class PriceAlertConversation extends Conversation
         return true;
     }
 
+    /**
+     * When the user taps a price on the reply keyboard while another step
+     * is open, go back to the item selection with that price toggled.
+     */
+    protected function switchToItemsFromText(Nutgram $bot): bool
+    {
+        if (! $this->toggleItem(PriceItems::fromText($bot->message()?->text))) {
+            return false;
+        }
+
+        $this->showItems($bot);
+        $this->next('handleItems');
+
+        return true;
+    }
+
     protected function continueToTime(Nutgram $bot): void
     {
         if ($this->selected === []) {
@@ -185,55 +219,112 @@ class PriceAlertConversation extends Conversation
 
     public function handleTime(Nutgram $bot): void
     {
-        if ($bot->isCallbackQuery()) {
-            $data = (string) $bot->callbackQuery()?->data;
-
-            if ($data === 'custom') {
-                $bot->answerCallbackQuery();
-                $bot->sendMessage('🕒 ساعت مورد نظر را به صورت ۲۴ ساعته و در قالب HH:MM وارد کنید. مثال: 18:30');
-                $this->next('handleCustomTime');
-
+        if (! $bot->isCallbackQuery()) {
+            if ($this->handleRestartRequest($bot)) {
                 return;
             }
 
-            if ($data === 'back') {
-                $bot->answerCallbackQuery();
-                $this->showItems($bot);
-                $this->next('handleItems');
-
+            if ($this->switchToItemsFromText($bot)) {
                 return;
             }
 
-            if ($data === 'cancel') {
-                $bot->answerCallbackQuery();
-                $this->render($bot, '❌ عملیات لغو شد.');
-                $this->end();
+            $this->saveFromText($bot, $bot->message()?->text);
 
-                return;
-            }
+            return;
+        }
 
-            if (str_starts_with($data, 'time:')) {
-                $bot->answerCallbackQuery();
-                $this->save($bot, substr($data, 5));
+        $data = (string) $bot->callbackQuery()?->data;
 
-                return;
-            }
-
+        if ($data === 'custom') {
             $bot->answerCallbackQuery();
+            $bot->sendMessage('🕒 ساعت مورد نظر را به صورت ۲۴ ساعته و در قالب HH:MM وارد کنید. مثال: 18:30');
+            $this->next('handleCustomTime');
 
+            return;
+        }
+
+        if ($data === 'back') {
+            $bot->answerCallbackQuery();
+            $this->showItems($bot);
+            $this->next('handleItems');
+
+            return;
+        }
+
+        if ($data === 'cancel') {
+            $bot->answerCallbackQuery();
+            $this->render($bot, '❌ عملیات لغو شد.');
+            $this->end();
+
+            return;
+        }
+
+        if (str_starts_with($data, 'time:')) {
+            $bot->answerCallbackQuery();
+            $this->save($bot, substr($data, 5));
+
+            return;
+        }
+
+        $bot->answerCallbackQuery();
+    }
+
+    public function handleCustomTime(Nutgram $bot): void
+    {
+        if ($this->handleRestartRequest($bot)) {
+            return;
+        }
+
+        if ($this->switchToItemsFromText($bot)) {
             return;
         }
 
         $this->saveFromText($bot, $bot->message()?->text);
     }
 
-    public function handleCustomTime(Nutgram $bot): void
+    /**
+     * The alert setup can be restarted from any step with the notify button
+     * or the /notify command. /start leaves the setup and shows the menu.
+     */
+    protected function handleRestartRequest(Nutgram $bot): bool
     {
-        $this->saveFromText($bot, $bot->message()?->text);
+        if ($bot->isCallbackQuery()) {
+            return false;
+        }
+
+        $text = trim((string) $bot->message()?->text);
+
+        if (str_starts_with($text, '/start')) {
+            $bot->sendMessage(
+                "به ربات نرخ طلایی خوش آمدید! 🎉\nلطفا برای دریافت قیمت روی دکمه زیر بزنید.",
+                reply_markup: WelcomeCommand::keyboard(),
+            );
+            $this->end();
+
+            return true;
+        }
+
+        if (
+            in_array($text, ['🔔 بهم اطلاع بده', 'بهم اطلاع بده'], true)
+            || str_starts_with($text, '/notify')
+        ) {
+            $this->start($bot);
+
+            return true;
+        }
+
+        return false;
     }
 
     protected function saveFromText(Nutgram $bot, ?string $text): void
     {
+        if (in_array(trim((string) $text), ['لغو', 'انصراف', 'cancel'], true)) {
+            $bot->sendMessage('❌ عملیات لغو شد.');
+            $this->end();
+
+            return;
+        }
+
         $time = $this->parseTime($text);
 
         if ($time === null) {
@@ -323,7 +414,8 @@ class PriceAlertConversation extends Conversation
             "🔔 اعلان قیمت روزانه\n\n".
             "قیمت‌هایی که می‌خواهید هر روز برایتان ارسال شود را انتخاب کنید.\n".
             "روی هر گزینه بزنید تا انتخاب یا لغو شود.\n\n".
-            'انتخاب‌شده: '.count($this->selected).' از '.count(PriceItems::all())
+            'انتخاب‌شده: '.count($this->selected).' از '.count(PriceItems::all()),
+            $keyboard
         );
     }
 
@@ -359,7 +451,8 @@ class PriceAlertConversation extends Conversation
             $bot,
             "🕒 ساعت ارسال را انتخاب کنید.\n\n".
             "قیمت‌های انتخاب‌شده هر روز در این ساعت برای شما ارسال می‌شود.\n".
-            'برای ساعت دلخواه، روی «✍️ ساعت دلخواه» بزنید و ساعت را تایپ کنید.'
+            'برای ساعت دلخواه، روی «✍️ ساعت دلخواه» بزنید و ساعت را تایپ کنید.',
+            $keyboard
         );
     }
 
@@ -378,7 +471,8 @@ class PriceAlertConversation extends Conversation
             $bot,
             "🔔 اعلان روزانه شما فعال است.\n\n".
             '🕒 ساعت ارسال: '.$alert->notify_time."\n".
-            '📊 قیمت‌ها: '.PriceItems::labels((array) $alert->items)
+            '📊 قیمت‌ها: '.PriceItems::labels((array) $alert->items),
+            $keyboard
         );
     }
 
@@ -394,19 +488,22 @@ class PriceAlertConversation extends Conversation
             $message = $bot->callbackQuery()?->message;
 
             if ($message !== null) {
+                $this->menuChatId = $message->chat?->id;
+                $this->menuMessageId = $message->message_id;
+
                 try {
                     $bot->editMessageText(
                         text: $text,
-                        chat_id: $message->chat?->id,
-                        message_id: $message->message_id,
+                        chat_id: $this->menuChatId,
+                        message_id: $this->menuMessageId,
                         reply_markup: $keyboard,
                     );
 
-                    $this->menuChatId = $message->chat?->id;
-                    $this->menuMessageId = $message->message_id;
-
                     return;
-                } catch (TelegramException) {
+                } catch (TelegramException $exception) {
+                    if ($this->isNotModified($exception)) {
+                        return;
+                    }
                     // The message cannot be edited anymore, send a new one.
                 }
             }
@@ -420,7 +517,10 @@ class PriceAlertConversation extends Conversation
                 );
 
                 return;
-            } catch (TelegramException) {
+            } catch (TelegramException $exception) {
+                if ($this->isNotModified($exception)) {
+                    return;
+                }
                 // The message cannot be edited anymore, send a new one.
             }
         }
@@ -429,6 +529,11 @@ class PriceAlertConversation extends Conversation
 
         $this->menuChatId = $message?->chat?->id;
         $this->menuMessageId = $message?->message_id;
+    }
+
+    protected function isNotModified(TelegramException $exception): bool
+    {
+        return str_contains($exception->getMessage(), 'not modified');
     }
 
     protected function parseTime(?string $text): ?string
