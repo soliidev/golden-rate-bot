@@ -11,23 +11,25 @@ class ChooseItemPriceHandler
     public function __invoke(Nutgram $bot): void
     {
         $bot->sendMessage(
-            'جهت مشاهده قیمت، یکی از موارد زیر را انتخاب کنید.',
+            'جهت مشاهده قیمت، یکی از گزینه‌های زیر را انتخاب کنید:',
             reply_markup: ReplyKeyboardMarkup::make(true)
                 ->addRow(
-                    KeyboardButton::make('دلار'),
-                    KeyboardButton::make('یورو')
+                    KeyboardButton::make('💵 دلار'),
+                    KeyboardButton::make('💶 یورو')
                 )
                 ->addRow(
-                    KeyboardButton::make('سکه بهار آزادی'),
-                    KeyboardButton::make('ربع سکه'),
-                    KeyboardButton::make('نیم سکه'),
-                    KeyboardButton::make('طلای دست دوم')
-
+                    KeyboardButton::make('🪙 سکه بهار آزادی'),
+                    KeyboardButton::make('🪙 ربع سکه'),
+                    KeyboardButton::make('🪙 نیم سکه'),
+                    KeyboardButton::make('🥇 طلای دست دوم')
                 )
                 ->addRow(
-                    KeyboardButton::make('بیت کوین'),
-                    KeyboardButton::make('تتر'),
-                    KeyboardButton::make('ریپل')
+                    KeyboardButton::make('₿ بیت کوین'),
+                    KeyboardButton::make('₮ تتر'),
+                    KeyboardButton::make('✳️ ریپل')
+                )
+                ->addRow(
+                    KeyboardButton::make('🔔 بهم اطلاع بده')
                 )
         );
     }

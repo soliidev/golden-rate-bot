@@ -2,8 +2,8 @@
 
 namespace App\Telegram\Commands\Welcome;
 
-use SergiX44\Nutgram\Nutgram;
 use SergiX44\Nutgram\Handlers\Type\Command;
+use SergiX44\Nutgram\Nutgram;
 use SergiX44\Nutgram\Telegram\Types\Keyboard\KeyboardButton;
 use SergiX44\Nutgram\Telegram\Types\Keyboard\ReplyKeyboardMarkup;
 
@@ -16,11 +16,21 @@ class WelcomeCommand extends Command
     public function handle(Nutgram $bot): void
     {
         $bot->sendMessage(
-            'به ربات نرخ طلایی خوش آمدید. لطفا یکی از فعالیت های زیر را انتخاب کنید!!',
-            reply_markup: ReplyKeyboardMarkup::make(true)
-                ->addRow(
-                    KeyboardButton::make('بررسی قیمت ها')
-                )
+            'به ربات نرخ طلایی خوش آمدید! 🎉
+لطفا برای دریافت قیمت روی دکمه زیر بزنید.',
+            reply_markup: self::keyboard()
         );
+    }
+
+    /**
+     * The main reply keyboard shown to the user.
+     */
+    public static function keyboard(): ReplyKeyboardMarkup
+    {
+        return ReplyKeyboardMarkup::make(true)
+            ->addRow(
+                KeyboardButton::make('💰 بررسی قیمت‌ها'),
+                KeyboardButton::make('🔔 بهم اطلاع بده')
+            );
     }
 }

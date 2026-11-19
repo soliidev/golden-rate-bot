@@ -1,7 +1,9 @@
 <?php
+
 /** @var SergiX44\Nutgram\Nutgram $bot */
 
 use App\Telegram\Commands\Welcome\WelcomeCommand;
+use App\Telegram\Conversations\PriceAlertConversation;
 use App\Telegram\Handlers\Price\ChooseItemPriceHandler;
 use App\Telegram\Handlers\Price\ItemPriceHandler;
 
@@ -16,14 +18,15 @@ use App\Telegram\Handlers\Price\ItemPriceHandler;
 */
 
 $bot->onCommand('start', WelcomeCommand::class)->description('The welcome command!');
+$bot->onCommand('notify', PriceAlertConversation::class)->description('Daily price alert subscription');
+
+$bot->onText('🔔 بهم اطلاع بده', PriceAlertConversation::class);
+$bot->onText('بهم اطلاع بده', PriceAlertConversation::class);
 
 $bot->onText('بررسی قیمت ها', ChooseItemPriceHandler::class);
-$bot->onText('دلار', ItemPriceHandler::class);
-$bot->onText('یورو', ItemPriceHandler::class);
-$bot->onText('سکه بهار آزادی', ItemPriceHandler::class);
-$bot->onText('ربع سکه', ItemPriceHandler::class);
-$bot->onText('نیم سکه', ItemPriceHandler::class);
-$bot->onText('طلای دست دوم', ItemPriceHandler::class);
-$bot->onText('بیت کوین', ItemPriceHandler::class);
-$bot->onText('تتر', ItemPriceHandler::class);
-$bot->onText('ریپل', ItemPriceHandler::class);
+$bot->onText('💰 بررسی قیمت‌ها', ChooseItemPriceHandler::class);
+
+// A single catch-all message handler: specific onText handlers above terminate
+// any running conversation, so prices are resolved here instead. This way the
+// user can also tap the reply keyboard buttons while setting up an alert.
+$bot->onMessage(ItemPriceHandler::class);
