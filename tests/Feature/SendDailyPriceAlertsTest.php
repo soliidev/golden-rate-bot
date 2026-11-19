@@ -60,3 +60,31 @@ test('the daily alert command ignores alerts scheduled for another time', functi
     Http::assertNothingSent();
     app(Nutgram::class)->assertCalled('sendMessage', 0);
 });
+
+test('a missed minute is caught up on the next run instead of being dropped', function () {
+    Http::fake([
+        '*' => Http::response([
+            'current' => [
+                'price_dollar_rl' => ['p' => '2,669,000', 'l' => '2,666,600', 'h' => '2,699,000', 'dp' => 0.68],
+            ],
+        ]),
+    ]);
+
+    // The alert was scheduled for 12:25 but the scheduler only runs at 12:31.
+    $this->travelTo(Carbon::create(2026, 11, 17, 12, 31, 0, 'Asia/Tehran'));
+
+    $alert = PriceAlert::query()->create([
+        'chat_id' => 7000,
+        'telegram_user_id' => 7000,
+        'first_name' => 'Test',
+        'notify_time' => '12:25',
+        'timezone' => 'Asia/Tehran',
+        'items' => ['price_dollar_rl'],
+        'is_active' => true,
+    ]);
+
+    $this->artisan('alerts:send-daily')->assertSuccessful();
+
+    app(Nutgram::class)->assertCalled('sendMessage', 1);
+    expect($alert->fresh()->last_sent_on?->toDateString())->toBe('2026-11-17');
+});

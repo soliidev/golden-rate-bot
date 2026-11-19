@@ -34,9 +34,12 @@ class SendDailyPriceAlerts extends Command
         $timezone = (string) config('price-alerts.timezone', 'Asia/Tehran');
         $now = now($timezone);
 
+        // Send at the first run at or after the scheduled time. Matching only
+        // the exact minute would drop the alert for the whole day whenever the
+        // scheduler is late, blocked or briefly unavailable.
         $alerts = PriceAlert::query()
             ->where('is_active', true)
-            ->where('notify_time', $now->format('H:i'))
+            ->where('notify_time', '<=', $now->format('H:i'))
             ->where(static function ($query) use ($now): void {
                 $query->whereNull('last_sent_on')
                     ->orWhere('last_sent_on', '<', $now->toDateString());
@@ -44,7 +47,7 @@ class SendDailyPriceAlerts extends Command
             ->get();
 
         if ($alerts->isEmpty()) {
-            $this->info("No alerts scheduled at {$now->format('H:i')} ({$timezone}).");
+            $this->info("No alerts due at {$now->format('H:i')} or earlier ({$timezone}).");
 
             return self::SUCCESS;
         }

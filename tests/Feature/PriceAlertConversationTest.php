@@ -2,6 +2,7 @@
 
 use App\Models\PriceAlert;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use SergiX44\Nutgram\Nutgram;
 use SergiX44\Nutgram\Telegram\Properties\ChatType;
@@ -338,6 +339,27 @@ test('typing cancel during the time step closes the setup', function () {
     $bot->hearText('لغو')->reply();
 
     expect(PriceAlert::query()->exists())->toBeFalse();
+});
+
+test('saving an alert for a time that already passed today does not fire immediately', function () {
+    $this->travelTo(Carbon::create(2026, 11, 17, 18, 30, 0, 'Asia/Tehran'));
+
+    $bot = app(Nutgram::class);
+
+    $bot->setCommonUser(User::make(id: 4014, is_bot: false, first_name: 'Test'));
+    $bot->setCommonChat(Chat::make(id: 4014, type: ChatType::PRIVATE));
+
+    $bot->hearText('🔔 بهم اطلاع بده')->reply();
+    $bot->hearCallbackQueryData('item:price_dollar_rl')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:18:00')->reply();
+
+    $alert = PriceAlert::query()->first();
+
+    expect($alert)
+        ->not->toBeNull()
+        ->and($alert->notify_time)->toBe('18:00')
+        ->and($alert->last_sent_on?->toDateString())->toBe('2026-11-17');
 });
 
 test('the start command shows the main menu when no conversation is running', function () {
