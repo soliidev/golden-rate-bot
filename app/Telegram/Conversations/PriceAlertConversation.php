@@ -363,6 +363,11 @@ class PriceAlertConversation extends Conversation
 
         $user = $bot->user();
 
+        // If the chosen time already passed today, mark it as sent so the
+        // scheduler does not fire it right after saving; it starts tomorrow.
+        $now = now(config('price-alerts.timezone', 'Asia/Tehran'));
+        $alreadyPassed = $time <= $now->format('H:i');
+
         PriceAlert::query()->updateOrCreate(
             ['chat_id' => $chatId],
             [
@@ -373,7 +378,7 @@ class PriceAlertConversation extends Conversation
                 'timezone' => config('price-alerts.timezone', 'Asia/Tehran'),
                 'items' => $items,
                 'is_active' => true,
-                'last_sent_on' => null,
+                'last_sent_on' => $alreadyPassed ? $now->toDateString() : null,
             ]
         );
 
@@ -382,7 +387,9 @@ class PriceAlertConversation extends Conversation
             "✅ اعلان روزانه شما ثبت شد.\n\n".
             "🕒 هر روز ساعت $time\n".
             '📊 '.PriceItems::labels($items)."\n\n".
-            "از این پس قیمت‌های لحظه‌ای در همین ساعت برای شما ارسال می‌شود.\n".
+            ($alreadyPassed
+                ? "چون ساعت $time امروز گذشته است، از فردا برای شما ارسال می‌شود.\n"
+                : "از این پس قیمت‌های لحظه‌ای در همین ساعت برای شما ارسال می‌شود.\n").
             'برای تغییر یا لغو، دوباره روی «🔔 بهم اطلاع بده» بزنید.'
         );
 
