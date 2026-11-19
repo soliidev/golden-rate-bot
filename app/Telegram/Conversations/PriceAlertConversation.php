@@ -5,6 +5,7 @@ namespace App\Telegram\Conversations;
 use App\Models\PriceAlert;
 use App\Support\PriceItems;
 use App\Telegram\Commands\Welcome\WelcomeCommand;
+use Illuminate\Database\Eloquent\Collection;
 use SergiX44\Nutgram\Conversations\Conversation;
 use SergiX44\Nutgram\Nutgram;
 use SergiX44\Nutgram\Telegram\Exceptions\TelegramException;
@@ -29,6 +30,12 @@ class PriceAlertConversation extends Conversation
      */
     protected ?string $time = null;
 
+    /**
+     * The notify_time of the alert being edited, if any. Saving with a
+     * different time then replaces that row instead of adding a new one.
+     */
+    protected ?string $editingTime = null;
+
     protected ?int $menuChatId = null;
 
     protected ?int $menuMessageId = null;
@@ -43,17 +50,9 @@ class PriceAlertConversation extends Conversation
 
     public function start(Nutgram $bot): void
     {
-        $alert = $this->currentAlert($bot);
-
-        if ($alert !== null) {
-            $this->selected = array_values(array_filter(
-                (array) $alert->items,
-                static fn (string $key): bool => PriceItems::exists($key)
-            ));
-            $this->time = $alert->notify_time;
-
-            $this->showSummary($bot, $alert);
-            $this->next('handleSummary');
+        if ($this->currentAlerts($bot)->isNotEmpty()) {
+            $this->showList($bot);
+            $this->next('handleList');
 
             return;
         }
@@ -62,53 +61,121 @@ class PriceAlertConversation extends Conversation
         $this->next('handleItems');
     }
 
-    public function handleSummary(Nutgram $bot): void
+    /**
+     * The list of the saved alerts: add, edit or delete them from here.
+     */
+    public function handleList(Nutgram $bot): void
     {
         if (! $bot->isCallbackQuery()) {
             if ($this->handleRestartRequest($bot)) {
                 return;
             }
 
-            if ($this->switchToItemsFromText($bot)) {
+            $text = trim((string) $bot->message()?->text);
+
+            if (in_array($text, ['لغو', 'انصراف', 'cancel'], true)) {
+                $bot->sendMessage('❌ عملیات لغو شد.');
+                $this->end();
+
                 return;
             }
 
-            $bot->sendMessage('برای تغییر، روی «✏️ تغییر تنظیمات» بزنید و برای لغو، «🔕 لغو اعلان».');
+            $key = PriceItems::fromText($text);
+
+            if ($key !== null) {
+                // Typing a price name starts a new alert for that price.
+                $this->selected = [$key];
+                $this->time = null;
+                $this->editingTime = null;
+                $this->showItems($bot);
+                $this->next('handleItems');
+
+                return;
+            }
+
+            $bot->sendMessage('از دکمه‌های زیر استفاده کنید: «➕ افزودن ساعت جدید»، ✏️ برای تغییر و 🗑 برای حذف.');
 
             return;
         }
 
         $data = (string) $bot->callbackQuery()?->data;
 
-        switch ($data) {
-            case 'edit':
-                $bot->answerCallbackQuery();
-                $this->showItems($bot);
-                $this->next('handleItems');
+        if ($data === 'add') {
+            $bot->answerCallbackQuery();
+            $this->selected = [];
+            $this->time = null;
+            $this->editingTime = null;
+            $this->showItems($bot);
+            $this->next('handleItems');
+
+            return;
+        }
+
+        if (str_starts_with($data, 'edit:')) {
+            $bot->answerCallbackQuery();
+            $alert = $this->alertAt($bot, substr($data, 5));
+
+            if ($alert === null) {
+                $this->showList($bot);
+                $this->next('handleList');
 
                 return;
+            }
 
-            case 'delete':
-                $bot->answerCallbackQuery();
-                PriceAlert::query()->where('chat_id', $bot->chatId())->delete();
+            $this->selected = array_values(array_filter(
+                (array) $alert->items,
+                static fn (string $key): bool => PriceItems::exists($key)
+            ));
+            $this->time = $alert->notify_time;
+            $this->editingTime = $alert->notify_time;
+            $this->showItems($bot);
+            $this->next('handleItems');
+
+            return;
+        }
+
+        if (str_starts_with($data, 'del:')) {
+            $bot->answerCallbackQuery();
+            $time = substr($data, 4);
+            $this->deleteAlert($bot, $time);
+
+            if ($this->currentAlerts($bot)->isEmpty()) {
                 $this->selected = [];
                 $this->time = null;
-                $this->render($bot, "🔕 اعلان روزانه شما لغو شد.\n\nهر زمان بخواهید می‌توانید دوباره روی «🔔 بهم اطلاع بده» بزنید.");
+                $this->editingTime = null;
+                $this->render($bot, "🗑 اعلان ساعت $time حذف شد.\n\nهیچ اعلانی ثبت نیست. هر زمان خواستید روی «🔔 بهم اطلاع بده» بزنید.");
                 $this->end();
 
                 return;
+            }
 
-            case 'close':
-                $bot->answerCallbackQuery();
-                $this->render($bot, 'از دکمه‌های زیر می‌توانید قیمت‌ها را ببینید یا اعلان روزانه بسازید.');
-                $this->end();
+            $this->showList($bot, "🗑 اعلان ساعت $time حذف شد.");
+            $this->next('handleList');
 
-                return;
-
-            default:
-                $bot->answerCallbackQuery();
-                $this->end();
+            return;
         }
+
+        if ($data === 'delete_all') {
+            $bot->answerCallbackQuery();
+            PriceAlert::query()->where('chat_id', $bot->chatId())->delete();
+            $this->selected = [];
+            $this->time = null;
+            $this->editingTime = null;
+            $this->render($bot, "🔕 همه اعلان‌های روزانه شما لغو شد.\n\nهر زمان بخواهید می‌توانید دوباره روی «🔔 بهم اطلاع بده» بزنید.");
+            $this->end();
+
+            return;
+        }
+
+        if ($data === 'close') {
+            $bot->answerCallbackQuery();
+            $this->render($bot, 'از دکمه‌های زیر می‌توانید قیمت‌ها را ببینید یا اعلان روزانه بسازید.');
+            $this->end();
+
+            return;
+        }
+
+        $bot->answerCallbackQuery();
     }
 
     public function handleItems(Nutgram $bot): void
@@ -157,13 +224,33 @@ class PriceAlertConversation extends Conversation
 
         if ($data === 'cancel') {
             $bot->answerCallbackQuery();
-            $this->render($bot, '❌ عملیات لغو شد.');
-            $this->end();
+            $this->cancelFlow($bot);
 
             return;
         }
 
         $bot->answerCallbackQuery();
+    }
+
+    /**
+     * Leaving the setup: go back to the alert list when there is one,
+     * otherwise just close the conversation.
+     */
+    protected function cancelFlow(Nutgram $bot): void
+    {
+        $this->editingTime = null;
+        $this->time = null;
+        $this->selected = [];
+
+        if ($this->currentAlerts($bot)->isNotEmpty()) {
+            $this->showList($bot, '❌ عملیات لغو شد.');
+            $this->next('handleList');
+
+            return;
+        }
+
+        $this->render($bot, '❌ عملیات لغو شد.');
+        $this->end();
     }
 
     protected function toggleItem(?string $key): bool
@@ -253,8 +340,7 @@ class PriceAlertConversation extends Conversation
 
         if ($data === 'cancel') {
             $bot->answerCallbackQuery();
-            $this->render($bot, '❌ عملیات لغو شد.');
-            $this->end();
+            $this->cancelFlow($bot);
 
             return;
         }
@@ -319,8 +405,7 @@ class PriceAlertConversation extends Conversation
     protected function saveFromText(Nutgram $bot, ?string $text): void
     {
         if (in_array(trim((string) $text), ['لغو', 'انصراف', 'cancel'], true)) {
-            $bot->sendMessage('❌ عملیات لغو شد.');
-            $this->end();
+            $this->cancelFlow($bot);
 
             return;
         }
@@ -368,13 +453,23 @@ class PriceAlertConversation extends Conversation
         $now = now(config('price-alerts.timezone', 'Asia/Tehran'));
         $alreadyPassed = $time <= $now->format('H:i');
 
+        // Editing with a different time replaces the old row instead of
+        // leaving a duplicate behind.
+        if ($this->editingTime !== null && $this->editingTime !== $time) {
+            $this->deleteAlert($bot, $this->editingTime);
+        }
+
+        $this->editingTime = null;
+        $this->time = $time;
+
+        // One row per (chat, time): the same time updates its own alert,
+        // a new time adds another one for the same day.
         PriceAlert::query()->updateOrCreate(
-            ['chat_id' => $chatId],
+            ['chat_id' => $chatId, 'notify_time' => $time],
             [
                 'telegram_user_id' => $bot->userId(),
                 'username' => $user?->username,
                 'first_name' => $user?->first_name,
-                'notify_time' => $time,
                 'timezone' => config('price-alerts.timezone', 'Asia/Tehran'),
                 'items' => $items,
                 'is_active' => true,
@@ -382,18 +477,16 @@ class PriceAlertConversation extends Conversation
             ]
         );
 
-        $this->render(
+        $this->showList(
             $bot,
-            "✅ اعلان روزانه شما ثبت شد.\n\n".
-            "🕒 هر روز ساعت $time\n".
-            '📊 '.PriceItems::labels($items)."\n\n".
+            "✅ اعلان ساعت $time ثبت شد.\n\n".
+            '📊 '.PriceItems::labels($items)."\n".
             ($alreadyPassed
                 ? "چون ساعت $time امروز گذشته است، از فردا برای شما ارسال می‌شود.\n"
                 : "از این پس قیمت‌های لحظه‌ای در همین ساعت برای شما ارسال می‌شود.\n").
-            'برای تغییر یا لغو، دوباره روی «🔔 بهم اطلاع بده» بزنید.'
+            "\nبرای افزودن ساعت دیگر، «➕ افزودن ساعت جدید» را بزنید."
         );
-
-        $this->end();
+        $this->next('handleList');
     }
 
     protected function showItems(Nutgram $bot): void
@@ -463,24 +556,48 @@ class PriceAlertConversation extends Conversation
         );
     }
 
-    protected function showSummary(Nutgram $bot, PriceAlert $alert): void
+    /**
+     * The list of every saved alert with its own edit/delete buttons.
+     */
+    protected function showList(Nutgram $bot, ?string $notice = null): void
     {
-        $keyboard = InlineKeyboardMarkup::make()
-            ->addRow(
-                InlineKeyboardButton::make('✏️ تغییر تنظیمات', callback_data: 'edit'),
-                InlineKeyboardButton::make('🔕 لغو اعلان', callback_data: 'delete'),
-            )
-            ->addRow(
-                InlineKeyboardButton::make('✖️ بستن', callback_data: 'close'),
-            );
+        $alerts = $this->currentAlerts($bot);
 
-        $this->render(
-            $bot,
-            "🔔 اعلان روزانه شما فعال است.\n\n".
-            '🕒 ساعت ارسال: '.$alert->notify_time."\n".
-            '📊 قیمت‌ها: '.PriceItems::labels((array) $alert->items),
-            $keyboard
+        $keyboard = InlineKeyboardMarkup::make();
+
+        foreach ($alerts as $alert) {
+            $keyboard->addRow(
+                InlineKeyboardButton::make('✏️ تغییر '.$alert->notify_time, callback_data: 'edit:'.$alert->notify_time),
+                InlineKeyboardButton::make('🗑 حذف '.$alert->notify_time, callback_data: 'del:'.$alert->notify_time),
+            );
+        }
+
+        $keyboard->addRow(
+            InlineKeyboardButton::make('➕ افزودن ساعت جدید', callback_data: 'add'),
         );
+
+        if ($alerts->count() > 1) {
+            $keyboard->addRow(
+                InlineKeyboardButton::make('🔕 لغو همه اعلان‌ها', callback_data: 'delete_all'),
+            );
+        }
+
+        $keyboard->addRow(
+            InlineKeyboardButton::make('✖️ بستن', callback_data: 'close'),
+        );
+
+        $lines = [];
+
+        foreach ($alerts as $index => $alert) {
+            $lines[] = ($index + 1).') 🕒 '.$alert->notify_time.' — '.PriceItems::labels((array) $alert->items);
+        }
+
+        $text = ($notice !== null ? $notice."\n\n" : '')
+            .'🔔 اعلان‌های روزانه شما ('.count($alerts)."):\n\n"
+            .implode("\n", $lines)."\n\n"
+            .'برای افزودن ساعت دیگر، تغییر یا حذف از دکمه‌های زیر استفاده کنید.';
+
+        $this->render($bot, $text, $keyboard);
     }
 
     /**
@@ -559,10 +676,32 @@ class PriceAlertConversation extends Conversation
         return sprintf('%02d:%02d', (int) $matches[1], (int) $matches[2]);
     }
 
-    protected function currentAlert(Nutgram $bot): ?PriceAlert
+    /**
+     * Every alert saved for this chat, oldest time first.
+     *
+     * @return Collection<int, PriceAlert>
+     */
+    protected function currentAlerts(Nutgram $bot)
     {
         return PriceAlert::query()
             ->where('chat_id', $bot->chatId())
+            ->orderBy('notify_time')
+            ->get();
+    }
+
+    protected function alertAt(Nutgram $bot, string $time): ?PriceAlert
+    {
+        return PriceAlert::query()
+            ->where('chat_id', $bot->chatId())
+            ->where('notify_time', $time)
             ->first();
+    }
+
+    protected function deleteAlert(Nutgram $bot, string $time): void
+    {
+        PriceAlert::query()
+            ->where('chat_id', $bot->chatId())
+            ->where('notify_time', $time)
+            ->delete();
     }
 }

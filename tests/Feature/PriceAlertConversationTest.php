@@ -160,7 +160,7 @@ test('the continue button opens the time selection with the preset hours', funct
         ->toContain('⬅️ بازگشت');
 });
 
-test('the existing alert summary shows the manage buttons', function () {
+test('the existing alerts are listed with per-alert and add buttons', function () {
     PriceAlert::query()->create([
         'chat_id' => 4003,
         'telegram_user_id' => 4003,
@@ -181,8 +181,206 @@ test('the existing alert summary shows the manage buttons', function () {
     $buttons = menuButtons($bot, 'sendMessage');
 
     expect($buttons)
-        ->toContain('✏️ تغییر تنظیمات')
-        ->toContain('🔕 لغو اعلان');
+        ->toContain('✏️ تغییر 18:00')
+        ->toContain('🗑 حذف 18:00')
+        ->toContain('➕ افزودن ساعت جدید')
+        // A single alert does not need a "delete everything" button.
+        ->not->toContain('🔕 لغو همه اعلان‌ها');
+});
+
+test('a user can save several alerts for different times of the day', function () {
+    $bot = app(Nutgram::class);
+
+    $bot->setCommonUser(User::make(id: 4100, is_bot: false, first_name: 'Test'));
+    $bot->setCommonChat(Chat::make(id: 4100, type: ChatType::PRIVATE));
+
+    // First alert at 18:00.
+    $bot->hearText('🔔 بهم اطلاع بده')->reply();
+    $bot->hearCallbackQueryData('item:price_dollar_rl')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:18:00')->reply();
+
+    // Second alert at 20:00 with other items.
+    $bot->hearCallbackQueryData('add')->reply();
+    $bot->hearCallbackQueryData('item:price_eur')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:20:00')->reply();
+
+    // Third alert with a custom time.
+    $bot->hearCallbackQueryData('add')->reply();
+    $bot->hearCallbackQueryData('item:sekee')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('custom')->reply();
+    $bot->hearText('07:30')->reply();
+
+    $alerts = PriceAlert::query()
+        ->where('chat_id', 4100)
+        ->orderBy('notify_time')
+        ->get();
+
+    expect($alerts->pluck('notify_time')->all())->toBe(['07:30', '18:00', '20:00'])
+        ->and($alerts->firstWhere('notify_time', '07:30')->items)->toBe(['sekee'])
+        ->and($alerts->firstWhere('notify_time', '20:00')->items)->toBe(['price_eur']);
+
+    // The final screen lists all three alerts.
+    $buttons = menuButtons($bot, 'editMessageText');
+
+    expect($buttons)
+        ->toContain('✏️ تغییر 07:30')
+        ->toContain('✏️ تغییر 18:00')
+        ->toContain('✏️ تغییر 20:00')
+        ->toContain('🔕 لغو همه اعلان‌ها');
+});
+
+test('saving the same time again updates that alert instead of duplicating it', function () {
+    $bot = app(Nutgram::class);
+
+    $bot->setCommonUser(User::make(id: 4101, is_bot: false, first_name: 'Test'));
+    $bot->setCommonChat(Chat::make(id: 4101, type: ChatType::PRIVATE));
+
+    $bot->hearText('🔔 بهم اطلاع بده')->reply();
+    $bot->hearCallbackQueryData('item:price_dollar_rl')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:18:00')->reply();
+
+    $bot->hearCallbackQueryData('add')->reply();
+    $bot->hearCallbackQueryData('item:price_eur')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:18:00')->reply();
+
+    $alerts = PriceAlert::query()->where('chat_id', 4101)->get();
+
+    expect($alerts)->toHaveCount(1)
+        ->and($alerts->first()->items)->toBe(['price_eur']);
+});
+
+test('editing an alert keeps its time and changes only the items', function () {
+    $bot = app(Nutgram::class);
+
+    $bot->setCommonUser(User::make(id: 4102, is_bot: false, first_name: 'Test'));
+    $bot->setCommonChat(Chat::make(id: 4102, type: ChatType::PRIVATE));
+
+    $bot->hearText('🔔 بهم اطلاع بده')->reply();
+    $bot->hearCallbackQueryData('item:price_dollar_rl')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:18:00')->reply();
+
+    $bot->hearCallbackQueryData('edit:18:00')->reply();
+    $bot->hearCallbackQueryData('item:price_dollar_rl')->reply(); // unselect
+    $bot->hearCallbackQueryData('item:sekee')->reply(); // select instead
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:18:00')->reply();
+
+    $alerts = PriceAlert::query()->where('chat_id', 4102)->get();
+
+    expect($alerts)->toHaveCount(1)
+        ->and($alerts->first()->notify_time)->toBe('18:00')
+        ->and($alerts->first()->items)->toBe(['sekee']);
+});
+
+test('editing an alert to a new time moves the row instead of duplicating it', function () {
+    $bot = app(Nutgram::class);
+
+    $bot->setCommonUser(User::make(id: 4103, is_bot: false, first_name: 'Test'));
+    $bot->setCommonChat(Chat::make(id: 4103, type: ChatType::PRIVATE));
+
+    $bot->hearText('🔔 بهم اطلاع بده')->reply();
+    $bot->hearCallbackQueryData('item:price_dollar_rl')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:18:00')->reply();
+
+    $bot->hearCallbackQueryData('edit:18:00')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:22:00')->reply();
+
+    $alerts = PriceAlert::query()->where('chat_id', 4103)->get();
+
+    expect($alerts)->toHaveCount(1)
+        ->and($alerts->first()->notify_time)->toBe('22:00');
+});
+
+test('a single alert can be deleted while the others stay', function () {
+    $bot = app(Nutgram::class);
+
+    $bot->setCommonUser(User::make(id: 4104, is_bot: false, first_name: 'Test'));
+    $bot->setCommonChat(Chat::make(id: 4104, type: ChatType::PRIVATE));
+
+    $bot->hearText('🔔 بهم اطلاع بده')->reply();
+    $bot->hearCallbackQueryData('item:price_dollar_rl')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:18:00')->reply();
+
+    $bot->hearCallbackQueryData('add')->reply();
+    $bot->hearCallbackQueryData('item:price_eur')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:20:00')->reply();
+
+    $bot->hearCallbackQueryData('del:18:00')->reply();
+
+    $times = PriceAlert::query()->where('chat_id', 4104)->pluck('notify_time')->all();
+
+    expect($times)->toBe(['20:00']);
+});
+
+test('deleting the last alert empties the list and closes it', function () {
+    $bot = app(Nutgram::class);
+
+    $bot->setCommonUser(User::make(id: 4105, is_bot: false, first_name: 'Test'));
+    $bot->setCommonChat(Chat::make(id: 4105, type: ChatType::PRIVATE));
+
+    $bot->hearText('🔔 بهم اطلاع بده')->reply();
+    $bot->hearCallbackQueryData('item:price_dollar_rl')->reply();
+    $bot->hearCallbackQueryData('done')->reply();
+    $bot->hearCallbackQueryData('time:18:00')->reply();
+
+    $bot->hearCallbackQueryData('del:18:00')->reply();
+
+    expect(PriceAlert::query()->where('chat_id', 4105)->exists())->toBeFalse();
+});
+
+test('every alert of a chat is sent by the daily command at its own time', function () {
+    Http::fake([
+        '*' => Http::response([
+            'current' => [
+                'price_dollar_rl' => ['p' => '2,669,000', 'l' => '2,666,600', 'h' => '2,699,000', 'dp' => 0.68],
+            ],
+        ]),
+    ]);
+
+    $this->travelTo(Carbon::create(2026, 11, 17, 18, 0, 0, 'Asia/Tehran'));
+
+    PriceAlert::query()->create([
+        'chat_id' => 4106,
+        'telegram_user_id' => 4106,
+        'first_name' => 'Test',
+        'notify_time' => '17:00',
+        'timezone' => 'Asia/Tehran',
+        'items' => ['price_dollar_rl'],
+        'is_active' => true,
+    ]);
+    PriceAlert::query()->create([
+        'chat_id' => 4106,
+        'telegram_user_id' => 4106,
+        'first_name' => 'Test',
+        'notify_time' => '18:00',
+        'timezone' => 'Asia/Tehran',
+        'items' => ['price_dollar_rl'],
+        'is_active' => true,
+    ]);
+    PriceAlert::query()->create([
+        'chat_id' => 4106,
+        'telegram_user_id' => 4106,
+        'first_name' => 'Test',
+        'notify_time' => '19:00',
+        'timezone' => 'Asia/Tehran',
+        'items' => ['price_dollar_rl'],
+        'is_active' => true,
+    ]);
+
+    $this->artisan('alerts:send-daily')->assertSuccessful();
+
+    // The 17:00 (catch-up) and 18:00 alerts are due, 19:00 is not.
+    app(Nutgram::class)->assertCalled('sendMessage', 2);
 });
 
 test('tapping a price button while picking the time goes back to the item list', function () {
